@@ -73,6 +73,8 @@ def _load_config():
         cfg['paths']['test_dir'] = os.environ['TEST_DIR']
     if os.environ.get('OUTPUT_DIR'):
         cfg['paths']['output_dir'] = os.environ['OUTPUT_DIR']
+    if os.environ.get('EMBEDDING_MODEL'):
+        cfg['features']['embedding_model'] = os.environ['EMBEDDING_MODEL']
     
     # Ensure directories exist
     for key in ['output_dir', 'artifacts_dir', 'model_cache']:

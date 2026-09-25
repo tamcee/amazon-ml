@@ -21,13 +21,18 @@ class EmbeddingManager:
     def _load_model(self):
         if self._model is not None:
             return
-        # Set offline mode env vars
-        os.environ.setdefault('HF_HUB_OFFLINE', '1')
-        os.environ.setdefault('TRANSFORMERS_OFFLINE', '1')
         
         from sentence_transformers import SentenceTransformer
         print(f"  Loading embedding model: {self.model_name}")
-        self._model = SentenceTransformer(self.model_name, device=self.device)
+        try:
+            self._model = SentenceTransformer(self.model_name, device=self.device)
+        except Exception as e:
+            # Fallback if offline env vars were set in the environment or if local files were expected
+            if 'LocalEntryNotFoundError' in type(e).__name__ or 'offline' in str(e).lower():
+                print(f"  Model not found in local cache with offline mode. Retrying with local_files_only=False...")
+                self._model = SentenceTransformer(self.model_name, device=self.device, local_files_only=False)
+            else:
+                raise
     
     def _encode_batch(self, texts: list, batch_size: int = None) -> np.ndarray:
         """Encode texts with OOM backoff on batch size."""
