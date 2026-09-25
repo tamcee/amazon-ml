@@ -22,13 +22,36 @@ def _grouped_split(features_df: pd.DataFrame, val_frac: float = 0.15,
                    min_val: int = 5000) -> tuple:
     """Split by S1 entity groups — no S1 entity appears in both train and val."""
     s1_ids = features_df['s1_id'].unique()
+    n_total = len(s1_ids)
+    if n_total < 2:
+        raise ValueError(f"Need at least 2 unique S1 entities for train/val split, got {n_total}")
+
     np.random.seed(SEED)
     np.random.shuffle(s1_ids)
     
-    n_val = max(int(len(s1_ids) * val_frac), min(min_val, len(s1_ids)))
+    # Calculate validation size:
+    # 1. Target fraction:
+    n_val = int(n_total * val_frac)
+    # 2. Enforce min_val, but cap at half the pool (n_total // 2)
+    #    so train always retains at least half the pool when n_total < 2 * min_val:
+    n_val = max(n_val, min(min_val, n_total // 2))
+    # 3. Guard against edge cases: ensure at least 1 entity for val and >=1 entity for train:
+    n_val = max(1, min(n_val, n_total - 1))
+
     val_s1_ids = set(s1_ids[:n_val])
     train_s1_ids = set(s1_ids[n_val:])
     
+    if len(train_s1_ids) == 0:
+        raise ValueError(
+            f"Split error: Train set has 0 S1 entities! Total: {n_total}, n_val: {n_val} "
+            f"(val_frac={val_frac}, min_val={min_val})"
+        )
+    if len(val_s1_ids) == 0:
+        raise ValueError(
+            f"Split error: Validation set has 0 S1 entities! Total: {n_total}, n_val: {n_val} "
+            f"(val_frac={val_frac}, min_val={min_val})"
+        )
+
     train_mask = features_df['s1_id'].isin(train_s1_ids)
     val_mask = features_df['s1_id'].isin(val_s1_ids)
     
@@ -61,30 +84,46 @@ def _evaluate_on_full_candidates(model, val_df: pd.DataFrame,
     X_val = val_df[FEATURE_COLS].values
     probas = model.predict(X_val)
     
-    # Find best threshold on val
+    # Precompute val ground truth once outside the threshold loop
+    val_s1_set = set(val_df['s1_id'].unique())
+    val_gt = {k: v for k, v in ground_truth.items() if k in val_s1_set}
+    
+    # Fast monotonic threshold sweep:
+    # Sort candidate rows once by predicted probability descending.
+    # Sweeping thresholds in descending order allows each entity's predicted
+    # match set to be incrementally built in a single pass O(N) over rows.
+    sorted_idx = np.argsort(-probas)
+    s1_sorted = val_df['s1_id'].values[sorted_idx]
+    s23_sorted = val_df['s23_id'].values[sorted_idx]
+    p_sorted = probas[sorted_idx]
+    
+    taus = np.arange(0.3, 0.99, 0.01)
+    taus_desc = taus[::-1]
+    cuts = np.searchsorted(-p_sorted, -taus_desc, side='right')
+    
+    predictions = {s1_id: set() for s1_id in val_gt}
+    scores = {}
+    prev_idx = 0
+    
+    for tau, cut in zip(taus_desc, cuts):
+        for i in range(prev_idx, cut):
+            s1_id = s1_sorted[i]
+            if s1_id in predictions:
+                predictions[s1_id].add(s23_sorted[i])
+        prev_idx = cut
+        scores[tau] = f05_macro(predictions, val_gt)
+    
+    # Track best threshold with original ascending tie-breaking (strictly greater)
     best_f05 = 0
     best_tau = 0.5
-    for tau in np.arange(0.3, 0.99, 0.01):
-        predictions = {}
-        for _, row in val_df.assign(proba=probas).iterrows():
-            s1_id = row['s1_id']
-            if row['proba'] >= tau:
-                if s1_id not in predictions:
-                    predictions[s1_id] = set()
-                predictions[s1_id].add(row['s23_id'])
-        
-        # Ensure all val S1 ids are present
-        val_gt = {k: v for k, v in ground_truth.items() if k in set(val_df['s1_id'].unique())}
-        for s1_id in val_gt:
-            if s1_id not in predictions:
-                predictions[s1_id] = set()
-        
-        score = f05_macro(predictions, val_gt)
+    for tau in taus:
+        score = scores[tau]
         if score > best_f05:
             best_f05 = score
             best_tau = tau
     
     return best_f05, best_tau
+
 
 
 def train_model(features_df: pd.DataFrame, ground_truth: dict,
