@@ -30,10 +30,10 @@ def _grouped_split(features_df: pd.DataFrame, val_frac: float = 0.15,
     np.random.shuffle(s1_ids)
     
     # Calculate validation size:
-    # 1. Start with target fraction:
+    # 1. Target fraction:
     n_val = int(n_total * val_frac)
-    # 2. Enforce min_val, but cap it at half the pool (n_total // 2)
-    #    so train always retains at least half the entities when n_total < 2 * min_val:
+    # 2. Enforce min_val, but cap at half the pool (n_total // 2)
+    #    so train always retains at least half the pool when n_total < 2 * min_val:
     n_val = max(n_val, min(min_val, n_total // 2))
     # 3. Guard against edge cases: ensure at least 1 entity for val and >=1 entity for train:
     n_val = max(1, min(n_val, n_total - 1))
@@ -84,30 +84,46 @@ def _evaluate_on_full_candidates(model, val_df: pd.DataFrame,
     X_val = val_df[FEATURE_COLS].values
     probas = model.predict(X_val)
     
-    # Find best threshold on val
+    # Precompute val ground truth once outside the threshold loop
+    val_s1_set = set(val_df['s1_id'].unique())
+    val_gt = {k: v for k, v in ground_truth.items() if k in val_s1_set}
+    
+    # Fast monotonic threshold sweep:
+    # Sort candidate rows once by predicted probability descending.
+    # Sweeping thresholds in descending order allows each entity's predicted
+    # match set to be incrementally built in a single pass O(N) over rows.
+    sorted_idx = np.argsort(-probas)
+    s1_sorted = val_df['s1_id'].values[sorted_idx]
+    s23_sorted = val_df['s23_id'].values[sorted_idx]
+    p_sorted = probas[sorted_idx]
+    
+    taus = np.arange(0.3, 0.99, 0.01)
+    taus_desc = taus[::-1]
+    cuts = np.searchsorted(-p_sorted, -taus_desc, side='right')
+    
+    predictions = {s1_id: set() for s1_id in val_gt}
+    scores = {}
+    prev_idx = 0
+    
+    for tau, cut in zip(taus_desc, cuts):
+        for i in range(prev_idx, cut):
+            s1_id = s1_sorted[i]
+            if s1_id in predictions:
+                predictions[s1_id].add(s23_sorted[i])
+        prev_idx = cut
+        scores[tau] = f05_macro(predictions, val_gt)
+    
+    # Track best threshold with original ascending tie-breaking (strictly greater)
     best_f05 = 0
     best_tau = 0.5
-    for tau in np.arange(0.3, 0.99, 0.01):
-        predictions = {}
-        for _, row in val_df.assign(proba=probas).iterrows():
-            s1_id = row['s1_id']
-            if row['proba'] >= tau:
-                if s1_id not in predictions:
-                    predictions[s1_id] = set()
-                predictions[s1_id].add(row['s23_id'])
-        
-        # Ensure all val S1 ids are present
-        val_gt = {k: v for k, v in ground_truth.items() if k in set(val_df['s1_id'].unique())}
-        for s1_id in val_gt:
-            if s1_id not in predictions:
-                predictions[s1_id] = set()
-        
-        score = f05_macro(predictions, val_gt)
+    for tau in taus:
+        score = scores[tau]
         if score > best_f05:
             best_f05 = score
             best_tau = tau
     
     return best_f05, best_tau
+
 
 
 def train_model(features_df: pd.DataFrame, ground_truth: dict,
