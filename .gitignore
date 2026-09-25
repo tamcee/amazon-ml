@@ -1,0 +1,9 @@
+artifacts/
+__pycache__/
+*.pyc
+.env
+venv/
+dataset/
+output/
+*.npy
+*.parquet

@@ -1,0 +1,132 @@
+[vowels]
+"अ" = "a"
+"आ" = "A"
+"इ" = "i"
+"ई" = "I"
+"उ" = "u"
+"ऊ" = "U"
+"ऋ" = "q"
+"ॠ" = "Q"
+"ऌ" = "L"
+"ॡ" = "ḹ"
+"ऎ" = "è"
+"ए" = "e"
+"ऐ" = "E"
+"ऒ" = ""
+"ओ" = "o"
+"औ" = "O"
+
+[yogavaahas]
+"ं" = "M"
+"ः" = "H"
+"ँ" = "z"
+
+[virama]
+"्" = ""
+
+[zwj]
+"\u200d" = "{}"
+
+[accents]
+"॑" = "̭"
+"॒" = "̱"
+"᳙" = "̀"
+"᳓" = "́" # karShna misused for udAtta
+"꣡" = "¹"
+"꣢" = "²"
+"꣣" = "³"
+"꣤" = "⁴"
+"꣥" = "⁵"
+"꣦" = "⁶"
+"꣧" = "⁷"
+"꣨" = "⁸"
+"꣩" = "⁹"
+"꣪" = "ᵃ"
+"꣫" = "ᵘ"
+"꣬" = "ᵏ"
+"꣭" = "ⁿ"
+"꣮" = "ᵖ"
+"꣯" = "ʳ"
+"꣰" = "ᵛ"
+"꣱" = "ˢ"
+
+[consonants]
+"क" = "k"
+"ख" = "K"
+"ग" = "g"
+"घ" = "G"
+"ङ" = "f"
+"च" = "c"
+"छ" = "C"
+"ज" = "j"
+"झ" = "J"
+"ञ" = "F"
+"ट" = "t"
+"ठ" = "T"
+"ड" = "d"
+"ढ" = "D"
+"ण" = "N"
+"त" = "w"
+"थ" = "W"
+"द" = "x"
+"ध" = "X"
+"न" = "n"
+"प" = "p"
+"फ" = "P"
+"ब" = "b"
+"भ" = "B"
+"म" = "m"
+"य" = "y"
+"र" = "r"
+"ल" = "l"
+"व" = "v"
+"श" = "S"
+"ष" = "R"
+"स" = "s"
+"ह" = "h"
+"ळ" = "l̤"
+"क्ष" = "kR"
+"ज्ञ" = "jF"
+
+[symbols]
+"०" = "0"
+"१" = "1"
+"२" = "2"
+"३" = "3"
+"४" = "4"
+"५" = "5"
+"६" = "6"
+"७" = "7"
+"८" = "8"
+"९" = "9"
+"ॐ" = "oM"
+"ऽ" = "'"
+"।" = "."
+"॥" = ".."
+
+[extra_consonants]
+"क़" = "क़"
+"ख़" = "k͟h"
+"ग़" = "ġ"
+"ज़" = "ज़"
+"ड़" = "ṛ"
+"ढ़" = "ṛh"
+"फ़" = "फ़"
+"य़" = "ẏ"
+"ऱ" = "ṟ"
+"ऴ" = "ḻ"
+"ऩ" = "ṉ"
+"ऱ्" = "r̆"
+"थ़" = "s̱" # urdu ث, approximated by t
+"स़" = "s̤" # urdu ص, approximated by s
+"ह़" = "h̤" # urdu ح, approximated by h
+"त़" = "t̤" # 
+"झ़" = "ž"
+
+"च़" = "ʦ" # used in kAshmIri and transliterated as ʦ by Grierson.
+"छ़" = "ʦh" # used in kAshmIri and transliterated as ʦh by Grierson
+"ذ" = "ẕ" # urdu ذ
+"ض" = "ż"  # urdu ض "emphatic" /d/: pharyngealized voiced alveolar stop, lateral sides of tongue pressed to palate, front touching. Some urdu dicts use z̤.
+"ظ" = "ẓ"  # urdu ظ  velarized voiced dental fricative.  Some urdu dicts use z̤.
+"व़" = "व़"  # urdu و, devanAgarI equivalent made up
+
