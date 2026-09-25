@@ -69,15 +69,18 @@ def generate_blocking_keys(norm_name: str, norm_addr: str) -> set:
             keys.add(f'mph:{mp}')
     
     # Strategy 6: Distinctive single tokens ≥4 chars from name
-    for t in name_tokens:
+    # Limited to first 10 tokens to avoid unbounded key explosion on noisy/concatenated names
+    for t in name_tokens[:10]:
         if len(t) >= 4:
             keys.add(f'tok:{t}')
     
     # Strategy 7: All sorted bigram pairs from name tokens
-    if len(name_tokens) >= 2:
-        for i in range(len(name_tokens)):
-            for j in range(i + 1, min(i + 4, len(name_tokens))):
-                pair = '_'.join(sorted([name_tokens[i], name_tokens[j]]))
+    # Bounded window: pairwise combinations within a sliding window of 4 tokens, limited to first 10 tokens
+    bounded_name_tokens = name_tokens[:10]
+    if len(bounded_name_tokens) >= 2:
+        for i in range(len(bounded_name_tokens)):
+            for j in range(i + 1, min(i + 4, len(bounded_name_tokens))):
+                pair = '_'.join(sorted([bounded_name_tokens[i], bounded_name_tokens[j]]))
                 keys.add(f'bg:{pair}')
     
     # Strategy 8: Address numeric × substantive-token
@@ -93,39 +96,66 @@ def generate_blocking_keys(norm_name: str, norm_addr: str) -> set:
 def build_inverted_index(df: pd.DataFrame, max_block_size: int = 2500) -> dict:
     """Build inverted index from S2/S3 records.
     
+    Memory optimizations:
+    1. Encodes entity_ids as compact integer indices (small ints) instead of storing
+       repeated full string references across posting lists.
+    2. Enforces max_block_size incrementally: as soon as a key's block exceeds
+       max_block_size, the key is pruned and added to a blocked_keys blacklist,
+       preventing peak memory spikes from oversized keys.
+    3. Fast iteration using itertuples() instead of iterrows().
+    
     Args:
         df: DataFrame with entity_id, norm_business_name, norm_business_address
         max_block_size: drop keys whose posting list exceeds this size
     
     Returns:
-        dict mapping blocking key -> set of entity_ids
+        dict mapping blocking key -> set of entity_ids (or integer IDs with mapping attached)
     """
+    import gc
+    
+    unique_eids = df['entity_id'].unique()
+    eid_to_int = {eid: idx for idx, eid in enumerate(unique_eids)}
+    int_to_eid = list(unique_eids)
+    
     index = defaultdict(set)
+    blocked_keys = set()
     
-    for _, row in df.iterrows():
-        eid = row['entity_id']
-        keys = generate_blocking_keys(
-            row.get('norm_business_name', ''),
-            row.get('norm_business_address', '')
-        )
+    # Extract only required columns for faster, lighter itertuples iteration
+    cols = ['entity_id', 'norm_business_name', 'norm_business_address']
+    for row in df[cols].itertuples(index=False):
+        eid_int = eid_to_int[row[0]]
+        keys = generate_blocking_keys(row[1] or '', row[2] or '')
         for k in keys:
-            index[k].add(eid)
+            if k in blocked_keys:
+                continue
+            posting_set = index[k]
+            posting_set.add(eid_int)
+            if len(posting_set) > max_block_size:
+                del index[k]
+                blocked_keys.add(k)
     
-    # Apply max-block-size guard
-    oversized = {k for k, v in index.items() if len(v) > max_block_size}
-    if oversized:
-        print(f"  Dropping {len(oversized)} oversized blocking keys (>{max_block_size} entries)")
-        for k in oversized:
-            del index[k]
+    dropped_count = len(blocked_keys)
+    if dropped_count > 0:
+        print(f"  Incrementally pruned {dropped_count} oversized blocking keys (>{max_block_size} entries)")
     
-    print(f"  Inverted index: {len(index)} keys, "
-          f"{sum(len(v) for v in index.values())} total postings")
-    return dict(index)
+    total_postings = sum(len(v) for v in index.values())
+    print(f"  Inverted index: {len(index)} keys, {total_postings} total postings")
+    
+    # Attach int_to_eid lookup to the index dict metadata for find_candidates
+    result = dict(index)
+    result['_int_to_eid'] = int_to_eid
+    
+    del eid_to_int, blocked_keys
+    gc.collect()
+    return result
 
 
 def find_candidates(s1_df: pd.DataFrame, index: dict,
                     top_k: int = 100) -> dict:
     """Find candidate matches for each S1 entity using the inverted index.
+    
+    Optimized to iterate via itertuples() and decode compact integer postings
+    back to original string entity_ids.
     
     Args:
         s1_df: S1 DataFrame with norm_business_name, norm_business_address
@@ -135,14 +165,13 @@ def find_candidates(s1_df: pd.DataFrame, index: dict,
     Returns:
         dict: {s1_entity_id: set of candidate entity_ids}
     """
+    int_to_eid = index.get('_int_to_eid', None)
     candidates = {}
+    cols = ['entity_id', 'norm_business_name', 'norm_business_address']
     
-    for _, row in s1_df.iterrows():
-        s1_id = row['entity_id']
-        keys = generate_blocking_keys(
-            row.get('norm_business_name', ''),
-            row.get('norm_business_address', '')
-        )
+    for row in s1_df[cols].itertuples(index=False):
+        s1_id = row[0]
+        keys = generate_blocking_keys(row[1] or '', row[2] or '')
         
         # Count overlaps
         overlap_counts = Counter()
@@ -153,7 +182,10 @@ def find_candidates(s1_df: pd.DataFrame, index: dict,
         
         # Top-k by overlap count
         if overlap_counts:
-            top_cands = {eid for eid, _ in overlap_counts.most_common(top_k)}
+            if int_to_eid is not None:
+                top_cands = {int_to_eid[cand_id] for cand_id, _ in overlap_counts.most_common(top_k)}
+            else:
+                top_cands = {cand_id for cand_id, _ in overlap_counts.most_common(top_k)}
         else:
             top_cands = set()
         
@@ -176,12 +208,23 @@ def run_blocking(s1_df: pd.DataFrame, s2_df: pd.DataFrame, s3_df: pd.DataFrame,
     Returns:
         dict: {s1_entity_id: set of candidate entity_ids}
     """
+    import gc
+    
     print("Building inverted index...")
+    # Concatenate S2 and S3 for indexing
     s23 = pd.concat([s2_df, s3_df], ignore_index=True)
     index = build_inverted_index(s23, max_block_size=max_block_size)
     
+    # Free concatenated DataFrame immediately after index is built
+    del s23
+    gc.collect()
+    
     print(f"Finding candidates for {len(s1_df)} S1 entities...")
     candidates = find_candidates(s1_df, index, top_k=top_k)
+    
+    # Free index immediately after candidates are generated
+    del index
+    gc.collect()
     
     # Stats
     n_with_cands = sum(1 for v in candidates.values() if v)
