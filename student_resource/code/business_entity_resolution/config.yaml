@@ -1,0 +1,40 @@
+# Business Entity Resolution Pipeline Configuration
+
+seed: 42
+device: auto  # auto | cpu | cuda | mps
+
+paths:
+  # Paths are relative to student_resource/ unless overridden by env vars
+  # TRAIN_DIR, TEST_DIR, OUTPUT_DIR env vars take precedence
+  train_dir: null  # uses default: student_resource/dataset/train
+  test_dir: null   # uses default: student_resource/dataset/test
+  output_dir: null # uses default: student_resource/output
+
+blocking:
+  max_block_size: 2500   # drop blocking keys with more postings than this
+  top_k_per_entity: 100  # max candidates per S1 entity
+
+model:
+  n_estimators: 2000
+  learning_rate: 0.05
+  num_leaves: 63
+  max_depth: -1
+  min_child_samples: 20
+  scale_pos_weight: 1.0   # NOT stacking with neg subsampling
+  early_stopping_rounds: 50
+
+features:
+  tfidf_max_features: 100000
+  embedding_model: sentence-transformers/paraphrase-multilingual-MiniLM-L12-v2
+  embedding_dim: 384
+  embedding_batch_size: 128
+
+threshold:
+  min_tau: 0.3
+  max_tau: 0.99
+  step: 0.01
+
+training:
+  neg_sample_ratio: 10     # negatives per positive for training
+  val_size: 0.15           # fraction of S1 entities for validation
+  val_min_entities: 5000   # minimum validation S1 entities

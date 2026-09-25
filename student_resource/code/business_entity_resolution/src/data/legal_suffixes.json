@@ -1,0 +1,44 @@
+{
+  "global": {
+    "pvt": "private",
+    "ltd": "limited",
+    "llc": "",
+    "inc": "",
+    "incorporated": "",
+    "corp": "corporation",
+    "co": "company",
+    "llp": "",
+    "plc": "",
+    "limited": "limited",
+    "private": "private",
+    "corporation": "corporation",
+    "company": "company"
+  },
+  "india": {
+    "pvt": "private",
+    "ltd": "limited",
+    "llp": "",
+    "opc": ""
+  },
+  "france": {
+    "sarl": "",
+    "sas": "",
+    "eurl": "",
+    "sa": "",
+    "sasu": "",
+    "sci": "",
+    "snc": "",
+    "scea": "",
+    "gaec": "",
+    "earl": ""
+  },
+  "us": {
+    "llc": "",
+    "inc": "",
+    "corp": "corporation",
+    "lp": "",
+    "na": "",
+    "pllc": "",
+    "pa": ""
+  }
+}
