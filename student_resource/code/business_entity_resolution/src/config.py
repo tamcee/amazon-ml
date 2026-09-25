@@ -54,10 +54,12 @@ def _load_config():
         },
     }
     
-    # Deep merge raw over defaults
+    # Deep merge raw over defaults (ignoring None overrides)
     def merge(base, override):
         result = base.copy()
         for k, v in override.items():
+            if v is None:
+                continue
             if isinstance(v, dict) and isinstance(result.get(k), dict):
                 result[k] = merge(result[k], v)
             else:
@@ -73,8 +75,6 @@ def _load_config():
         cfg['paths']['test_dir'] = os.environ['TEST_DIR']
     if os.environ.get('OUTPUT_DIR'):
         cfg['paths']['output_dir'] = os.environ['OUTPUT_DIR']
-    if os.environ.get('EMBEDDING_MODEL'):
-        cfg['features']['embedding_model'] = os.environ['EMBEDDING_MODEL']
     
     # Ensure directories exist
     for key in ['output_dir', 'artifacts_dir', 'model_cache']:

@@ -22,13 +22,36 @@ def _grouped_split(features_df: pd.DataFrame, val_frac: float = 0.15,
                    min_val: int = 5000) -> tuple:
     """Split by S1 entity groups — no S1 entity appears in both train and val."""
     s1_ids = features_df['s1_id'].unique()
+    n_total = len(s1_ids)
+    if n_total < 2:
+        raise ValueError(f"Need at least 2 unique S1 entities for train/val split, got {n_total}")
+
     np.random.seed(SEED)
     np.random.shuffle(s1_ids)
     
-    n_val = max(int(len(s1_ids) * val_frac), min(min_val, len(s1_ids)))
+    # Calculate validation size:
+    # 1. Start with target fraction:
+    n_val = int(n_total * val_frac)
+    # 2. Enforce min_val, but cap it at half the pool (n_total // 2)
+    #    so train always retains at least half the entities when n_total < 2 * min_val:
+    n_val = max(n_val, min(min_val, n_total // 2))
+    # 3. Guard against edge cases: ensure at least 1 entity for val and >=1 entity for train:
+    n_val = max(1, min(n_val, n_total - 1))
+
     val_s1_ids = set(s1_ids[:n_val])
     train_s1_ids = set(s1_ids[n_val:])
     
+    if len(train_s1_ids) == 0:
+        raise ValueError(
+            f"Split error: Train set has 0 S1 entities! Total: {n_total}, n_val: {n_val} "
+            f"(val_frac={val_frac}, min_val={min_val})"
+        )
+    if len(val_s1_ids) == 0:
+        raise ValueError(
+            f"Split error: Validation set has 0 S1 entities! Total: {n_total}, n_val: {n_val} "
+            f"(val_frac={val_frac}, min_val={min_val})"
+        )
+
     train_mask = features_df['s1_id'].isin(train_s1_ids)
     val_mask = features_df['s1_id'].isin(val_s1_ids)
     
