@@ -82,28 +82,45 @@ def stage_train(args):
         device=DEVICE,
     )
     s23 = pd.concat([s2, s3], ignore_index=True)
+    del s2, s3
+    import gc
+    gc.collect()
     name_embs, addr_embs = emb_mgr.embed_candidate_pairs(s1, s23, candidates)
+    
+    # Free unneeded PyTorch GPU memory after embedding inference
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+    except Exception:
+        pass
     
     # Features
     print("\n=== Feature Extraction ===")
     feat_ext = FeatureExtractor(max_features=cfg['features']['tfidf_max_features'])
     
-    # Fit TF-IDF
-    all_df = pd.concat([s1, s23], ignore_index=True)
-    name_col = 'norm_business_name' if 'norm_business_name' in all_df.columns else 'business_name'
-    feat_ext.fit_tfidf(all_df[name_col], all_df['entity_id'])
+    # Fit TF-IDF only on required series without duplicating full DataFrames
+    name_col = 'norm_business_name' if 'norm_business_name' in s1.columns else 'business_name'
+    all_names = pd.concat([s1[name_col], s23[name_col]], ignore_index=True)
+    all_ids = pd.concat([s1['entity_id'], s23['entity_id']], ignore_index=True)
+    feat_ext.fit_tfidf(all_names, all_ids)
+    del all_names, all_ids
+    gc.collect()
     
     features_df = feat_ext.extract_all_features(
         s1, s23, candidates, name_embs, addr_embs
     )
     
-    # Add labels
+    # Free raw text embeddings and s23 as features are already extracted
+    del name_embs, addr_embs, s23
+    gc.collect()
+    
+    # Add labels using fast itertuples
     labels = []
-    for _, row in features_df.iterrows():
-        s1_id = row['s1_id']
-        s23_id = row['s23_id']
-        true_matches = gt.get(s1_id, set())
-        labels.append(1 if s23_id in true_matches else 0)
+    for row in features_df[['s1_id', 's23_id']].itertuples(index=False):
+        true_matches = gt.get(row.s1_id, set())
+        labels.append(1 if row.s23_id in true_matches else 0)
     features_df['label'] = labels
     
     print(f"  Labels: {sum(labels)} positive, {len(labels) - sum(labels)} negative")

@@ -72,20 +72,38 @@ def run_inference(model=None, threshold: float = None, cap: int = None,
         device=DEVICE,
     )
     s23 = pd.concat([s2, s3], ignore_index=True)
+    del s2, s3
+    import gc
+    gc.collect()
     name_embs, addr_embs = emb_mgr.embed_candidate_pairs(s1, s23, candidates)
+    
+    # Flush GPU cache after test embedding generation
+    try:
+        import torch
+        if torch.cuda.is_available():
+            torch.cuda.empty_cache()
+            torch.cuda.ipc_collect()
+    except Exception:
+        pass
     
     # 5. Features
     print("\n=== Feature extraction ===")
     feat_ext = FeatureExtractor(max_features=cfg['features']['tfidf_max_features'])
     
-    # Fit TF-IDF on test data
-    all_df = pd.concat([s1, s23], ignore_index=True)
-    name_col = 'norm_business_name' if 'norm_business_name' in all_df.columns else 'business_name'
-    feat_ext.fit_tfidf(all_df[name_col], all_df['entity_id'])
+    # Fit TF-IDF on test data series without full DataFrame copy
+    name_col = 'norm_business_name' if 'norm_business_name' in s1.columns else 'business_name'
+    all_names = pd.concat([s1[name_col], s23[name_col]], ignore_index=True)
+    all_ids = pd.concat([s1['entity_id'], s23['entity_id']], ignore_index=True)
+    feat_ext.fit_tfidf(all_names, all_ids)
+    del all_names, all_ids
+    gc.collect()
     
     features_df = feat_ext.extract_all_features(
         s1, s23, candidates, name_embs, addr_embs
     )
+    # Free raw text embeddings, s23, and candidates as features are computed
+    del name_embs, addr_embs, s23, candidates
+    gc.collect()
     
     # 6. Score
     print("\n=== Scoring ===")
@@ -104,8 +122,8 @@ def run_inference(model=None, threshold: float = None, cap: int = None,
         above = above.sort_values('proba', ascending=False)
         above = above.groupby('s1_id').head(cap)
     
-    for _, row in above.iterrows():
-        predictions[row['s1_id']].add(row['s23_id'])
+    for row in above[['s1_id', 's23_id']].itertuples(index=False):
+        predictions[row.s1_id].add(row.s23_id)
     
     # Stats
     n_matched = sum(1 for v in predictions.values() if v)

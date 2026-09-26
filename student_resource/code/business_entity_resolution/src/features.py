@@ -193,9 +193,36 @@ class FeatureExtractor:
         Returns:
             DataFrame with s1_id, s23_id, label (if available), and 26 features
         """
-        # Build row lookup dicts for fast access
-        s1_lookup = {row['entity_id']: row for _, row in s1_df.iterrows()}
-        s23_lookup = {row['entity_id']: row for _, row in s23_df.iterrows()}
+        # Build row lookup dicts only for entities actually needed in candidate pairs
+        # Using itertuples to avoid high memory overhead of 10M pandas Series objects
+        s1_needed = set(candidates.keys())
+        s23_needed = set()
+        for cand_ids in candidates.values():
+            s23_needed.update(cand_ids)
+            
+        s1_cols = [c for c in ['entity_id', 'norm_business_name', 'norm_business_address', 'country'] if c in s1_df.columns]
+        s1_lookup = {}
+        for row in s1_df[s1_cols].itertuples(index=False):
+            eid = getattr(row, 'entity_id')
+            if eid in s1_needed:
+                s1_lookup[eid] = {
+                    'entity_id': eid,
+                    'norm_business_name': getattr(row, 'norm_business_name', ''),
+                    'norm_business_address': getattr(row, 'norm_business_address', ''),
+                    'country': getattr(row, 'country', '')
+                }
+                
+        s23_cols = [c for c in ['entity_id', 'norm_business_name', 'norm_business_address', 'country'] if c in s23_df.columns]
+        s23_lookup = {}
+        for row in s23_df[s23_cols].itertuples(index=False):
+            eid = getattr(row, 'entity_id')
+            if eid in s23_needed:
+                s23_lookup[eid] = {
+                    'entity_id': eid,
+                    'norm_business_name': getattr(row, 'norm_business_name', ''),
+                    'norm_business_address': getattr(row, 'norm_business_address', ''),
+                    'country': getattr(row, 'country', '')
+                }
         
         rows = []
         total_pairs = sum(len(v) for v in candidates.values())
@@ -220,6 +247,10 @@ class FeatureExtractor:
                 pair_count += 1
                 if pair_count % progress_interval == 0:
                     print(f"    {pair_count}/{total_pairs} pairs processed...")
+        
+        del s1_lookup, s23_lookup, s1_needed, s23_needed
+        import gc
+        gc.collect()
         
         print(f"  Feature extraction complete: {len(rows)} pairs")
         return pd.DataFrame(rows)

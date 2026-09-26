@@ -21,13 +21,17 @@ class EmbeddingManager:
     def _load_model(self):
         if self._model is not None:
             return
-        # Set offline mode env vars
-        os.environ.setdefault('HF_HUB_OFFLINE', '1')
-        os.environ.setdefault('TRANSFORMERS_OFFLINE', '1')
         
         from sentence_transformers import SentenceTransformer
         print(f"  Loading embedding model: {self.model_name}")
-        self._model = SentenceTransformer(self.model_name, device=self.device)
+        try:
+            self._model = SentenceTransformer(self.model_name, device=self.device)
+        except Exception as e:
+            if 'LocalEntryNotFoundError' in type(e).__name__ or 'offline' in str(e).lower():
+                print(f"  Model not found in local cache with offline mode. Retrying with local_files_only=False...")
+                self._model = SentenceTransformer(self.model_name, device=self.device, local_files_only=False)
+            else:
+                raise
     
     def _encode_batch(self, texts: list, batch_size: int = None) -> np.ndarray:
         """Encode texts with OOM backoff on batch size."""
@@ -41,10 +45,18 @@ class EmbeddingManager:
                 )
                 return embeddings.astype(np.float16)
             except (RuntimeError, Exception) as e:
-                if 'out of memory' in str(e).lower() or 'mps' in str(e).lower():
+                err_str = str(e).lower()
+                if 'out of memory' in err_str or 'mps' in err_str or 'cuda' in err_str:
                     bs = bs // 2
                     print(f"  OOM — reducing batch size to {bs}")
                     gc.collect()
+                    try:
+                        import torch
+                        if torch.cuda.is_available():
+                            torch.cuda.empty_cache()
+                            torch.cuda.ipc_collect()
+                    except Exception:
+                        pass
                     if bs < 1:
                         raise
                 else:
